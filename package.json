@@ -1,0 +1,12 @@
+{
+  "name": "xplaww-account-board",
+  "version": "1.0.0",
+  "private": true,
+  "description": "XPLAW account trading board",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
