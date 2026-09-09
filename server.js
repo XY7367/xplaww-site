@@ -45,7 +45,12 @@ function hashPassword(password, salt) {
 function passwordMatches(password) {
   const salt = process.env.ADMIN_PASSWORD_SALT;
   const expected = process.env.ADMIN_PASSWORD_HASH;
-  if (!salt || !expected) return false;
+  if (!expected) return false;
+  if (expected.length === 64) {
+    const actual = crypto.createHash('sha256').update(password).digest('hex');
+    return crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
+  }
+  if (!salt) return false;
   const actual = Buffer.from(hashPassword(password, salt), 'hex');
   const target = Buffer.from(expected, 'hex');
   return actual.length === target.length && crypto.timingSafeEqual(actual, target);
