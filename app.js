@@ -26,6 +26,13 @@ async function hashText(value) {
   return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+async function tryLocalAdminLogin(username, password) {
+  if (String(username).toLowerCase() !== adminUsername || adminPasswordHash !== await hashText(String(password))) return false;
+  localStorage.setItem('xplaw-session', adminUsername);
+  localStorage.setItem('xplaw-admin', 'true');
+  return true;
+}
+
 function validUsername(username) {
   const normalized = username.toLowerCase();
   return /^[A-Za-z0-9_]{3,64}$/.test(username) && !blockedUsernameWords.some((word) => normalized.includes(word));
@@ -251,11 +258,15 @@ document.querySelector('#login-form').addEventListener('submit', async (event) =
       localStorage.setItem('xplaw-admin', result.admin ? 'true' : 'false');
       form.reset();
       updateAuthButton(); renderAdminConsole(); loginDialog.close(); return;
-    } catch (error) { status.textContent = error.message; return; }
+    } catch (error) {
+      if (await tryLocalAdminLogin(values.username, values.password)) {
+        form.reset();
+        updateAuthButton(); renderCommunityListings(); renderAdminConsole(); loginDialog.close(); return;
+      }
+      status.textContent = error.message; return;
+    }
   }
-  if (String(values.username).toLowerCase() === adminUsername && adminPasswordHash === await hashText(String(values.password))) {
-    localStorage.setItem('xplaw-session', adminUsername);
-    localStorage.setItem('xplaw-admin', 'true');
+  if (await tryLocalAdminLogin(values.username, values.password)) {
     document.querySelector('#login-button').textContent = 'ADMIN MODE';
     updateAuthButton();
     document.querySelector('#login-dialog').close();
