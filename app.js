@@ -1,6 +1,6 @@
 const blockedUsernameWords = ['fuck', 'shit', 'bitch', 'asshole', 'cunt', 'dick', 'piss', 'porn', 'nazi'];
 const adminUsername = 'cvtsforher';
-const adminPasswordHash = 'de502ac0dd6d25f65d3d59b41ba1ea68bcf4c94b335080fb3a643a2473b61c14';
+const adminPasswordHash = 'd6f049f4ed8732e1ea0540aaa13e0022b5315e488b6c7dea028d60db72724ef4';
 const serverMode = window.location.protocol !== 'file:';
 let sharedListings = null;
 
@@ -14,6 +14,10 @@ function leaveEntryScreen() {
 document.querySelector('#enter-board').addEventListener('click', () => {
   leaveEntryScreen();
   setTimeout(() => document.querySelector('#listing-form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+});
+
+document.querySelector('#update-close').addEventListener('click', () => {
+  document.querySelector('#update-panel').remove();
 });
 
 async function hashText(value) {
@@ -71,7 +75,7 @@ function renderCommunityListings() {
     header.className = 'listing-card-head';
     const meta = document.createElement('span');
     meta.className = 'entry-tag';
-    meta.textContent = listing.game;
+    meta.textContent = `${listing.game} / ${listing.listingType || 'Account'}`;
     const status = document.createElement('span');
     status.className = 'listing-status';
     status.textContent = 'AVAILABLE';
@@ -232,8 +236,9 @@ function renderReportCounts() {
 
 document.querySelector('#login-form').addEventListener('submit', async (event) => {
   event.preventDefault();
+  const form = event.currentTarget;
   const status = document.querySelector('#login-status');
-  const formData = new FormData(event.currentTarget);
+  const formData = new FormData(form);
   const values = Object.fromEntries(formData);
   status.textContent = 'Checking credentials...';
   if (serverMode) {
@@ -244,6 +249,7 @@ document.querySelector('#login-form').addEventListener('submit', async (event) =
       localStorage.setItem('xplaw-server-token', result.token);
       localStorage.setItem('xplaw-session', values.username);
       localStorage.setItem('xplaw-admin', result.admin ? 'true' : 'false');
+      form.reset();
       updateAuthButton(); renderAdminConsole(); loginDialog.close(); return;
     } catch (error) { status.textContent = error.message; return; }
   }
@@ -270,15 +276,16 @@ document.querySelector('#login-form').addEventListener('submit', async (event) =
 });
 document.querySelector('#register-form').addEventListener('submit', async (event) => {
   event.preventDefault();
+  const form = event.currentTarget;
   const status = document.querySelector('#register-status');
-  const formData = new FormData(event.currentTarget);
+  const formData = new FormData(form);
   const values = Object.fromEntries(formData);
   if (serverMode) {
     try {
       const response = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Account could not be created.');
-      status.textContent = result.message; event.currentTarget.reset();
+      status.textContent = result.message; form.reset();
       setTimeout(() => { document.querySelector('#register-view').hidden = true; document.querySelector('#login-view').hidden = false; }, 900); return;
     } catch (error) { status.textContent = error.message; return; }
   }
@@ -288,18 +295,33 @@ document.querySelector('#register-form').addEventListener('submit', async (event
   users.push({ username: String(values.username), passwordHash: await hashText(String(values.password)), createdAt: new Date().toISOString() });
   localStorage.setItem('xplaw-users', JSON.stringify(users));
   status.textContent = 'Account created. You can now log in.';
-  event.currentTarget.reset();
+  form.reset();
   setTimeout(() => { document.querySelector('#register-view').hidden = true; document.querySelector('#login-view').hidden = false; }, 900);
 });
-document.querySelector('#report-form').addEventListener('submit', (event) => {
+document.querySelector('#report-form').addEventListener('submit', async (event) => {
   event.preventDefault();
+  const form = event.currentTarget;
   const status = document.querySelector('#report-status');
-  const formData = new FormData(event.currentTarget);
+  const formData = new FormData(form);
+  if (serverMode) {
+    try {
+      const response = await fetch('/api/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(formData)) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Report could not be submitted.');
+      status.textContent = result.message;
+      form.reset();
+      renderReportCounts();
+      return;
+    } catch (error) {
+      status.textContent = error.message;
+      return;
+    }
+  }
   const reports = JSON.parse(localStorage.getItem('xplaw-reports') || '[]');
   reports.push({ ...Object.fromEntries(formData), createdAt: new Date().toISOString() });
   localStorage.setItem('xplaw-reports', JSON.stringify(reports));
   status.textContent = 'Report saved on this device for review.';
-  event.currentTarget.reset();
+  form.reset();
   renderReportCounts();
 });
 function readImage(file) {
@@ -313,8 +335,9 @@ function readImage(file) {
 
 document.querySelector('#listing-form').addEventListener('submit', async (event) => {
   event.preventDefault();
+  const form = event.currentTarget;
   const status = document.querySelector('#listing-status');
-  const formData = new FormData(event.currentTarget);
+  const formData = new FormData(form);
   const owner = localStorage.getItem('xplaw-session');
   if (!owner) { status.textContent = 'Log in before uploading a listing.'; return; }
   if (JSON.parse(localStorage.getItem('xplaw-banned') || '[]').includes(owner)) { status.textContent = 'This account is banned on this device.'; return; }
@@ -329,7 +352,7 @@ document.querySelector('#listing-form').addEventListener('submit', async (event)
       const response = await fetch('/api/listings', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('xplaw-server-token') || ''}` }, body: JSON.stringify(values) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Listing could not be submitted.');
-      status.textContent = result.message; event.currentTarget.reset(); await loadSharedListings(); return;
+      status.textContent = result.message; form.reset(); await loadSharedListings(); return;
     } catch (error) { status.textContent = error.message; return; }
   }
   const imageFiles = Array.from(event.currentTarget.elements.images.files);
@@ -340,7 +363,7 @@ document.querySelector('#listing-form').addEventListener('submit', async (event)
   try { listings.push({ ...values, images, owner, createdAt: new Date().toISOString() }); localStorage.setItem('xplaw-listings', JSON.stringify(listings)); }
   catch { status.textContent = 'This listing is too large for browser storage. Use smaller images.'; return; }
   status.textContent = 'Listing saved on this device.';
-  event.currentTarget.reset();
+  form.reset();
   renderCommunityListings();
   renderAdminConsole();
 });
@@ -351,7 +374,7 @@ document.querySelector('#uploaded-listings').addEventListener('click', async (ev
     const listings = JSON.parse(localStorage.getItem('xplaw-listings') || '[]');
     const listing = listings.find((entry) => (entry.createdAt || entry.account) === shareButton.dataset.shareListing);
     if (!listing) return;
-    const shareData = { account: listing.account, game: listing.game, description: listing.description, owner: listing.owner, contactPlatform: listing.contactPlatform, contactLink: listing.contactLink };
+    const shareData = { account: listing.account, game: listing.game, listingType: listing.listingType, description: listing.description, owner: listing.owner, contactPlatform: listing.contactPlatform, contactLink: listing.contactLink };
     const link = `${window.location.href.split('?')[0]}?listing=${encodeURIComponent(JSON.stringify(shareData))}`;
     try { await navigator.clipboard.writeText(link); shareButton.textContent = 'LINK COPIED'; }
     catch { window.prompt('Copy this share link:', link); }

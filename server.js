@@ -3,11 +3,29 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+loadDotEnv(path.join(__dirname, '.env'));
+
 const port = Number(process.env.PORT || 3000);
 const root = __dirname;
 const dataFile = path.join(root, 'data.json');
 const sessions = new Map();
 const users = loadData();
+
+function loadDotEnv(filePath) {
+  if (!fs.existsSync(filePath)) return;
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) continue;
+    const separatorIndex = trimmed.indexOf('=');
+    const key = trimmed.slice(0, separatorIndex).trim();
+    let value = trimmed.slice(separatorIndex + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (!process.env[key]) process.env[key] = value;
+  }
+}
 
 function loadData() {
   try {
@@ -129,7 +147,7 @@ async function handleApi(request, response, pathname) {
     const account = sessionUser(request);
     if (!account) return json(response, 401, { error: 'Log in before uploading a listing.' });
     const body = await readBody(request);
-    const listing = { id: crypto.randomUUID(), owner: account.username, account: clean(body.account, 64), game: clean(body.game, 80), description: clean(body.description), contactPlatform: clean(body.contactPlatform, 40), contactLink: clean(body.contactLink, 500), createdAt: new Date().toISOString() };
+    const listing = { id: crypto.randomUUID(), owner: account.username, account: clean(body.account, 64), game: clean(body.game, 80), listingType: clean(body.listingType, 30), description: clean(body.description), contactPlatform: clean(body.contactPlatform, 40), contactLink: clean(body.contactLink, 500), createdAt: new Date().toISOString() };
     if (!listing.account || !listing.description) return json(response, 400, { error: 'Account name and description are required.' });
     users.listings.push(listing); saveData();
     return json(response, 201, { ok: true, message: 'Listing submitted for review.' });
