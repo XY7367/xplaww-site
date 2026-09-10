@@ -4,6 +4,31 @@ const adminPasswordHash = 'd6f049f4ed8732e1ea0540aaa13e0022b5315e488b6c7dea028d6
 const serverMode = window.location.protocol !== 'file:';
 let sharedListings = null;
 
+const languageText = {
+  en: { language: 'Language', chooseLanguage: 'Choose the language for the board.', settings: 'XPLAW / SETTINGS', login: 'LOG IN', listing: 'MAKE A LISTING', enter: 'Enter the<br><em>board.</em>', welcome: 'Welcome', intro: 'Select the<br><em>account</em> to trade.', games: 'Supported games', partners: 'Partners', safety: 'SAFETY NOTICE', report: 'Report a scam', join: 'Join the board', community: 'Community listings', trade: 'Trade status', needHelp: 'Need help?' },
+  ar: { language: 'اللغة', chooseLanguage: 'اختر لغة اللوحة.', settings: 'إكس بلاو / الإعدادات', login: 'تسجيل الدخول', listing: 'إنشاء إعلان', enter: 'ادخل إلى<br><em>اللوحة.</em>', welcome: 'مرحباً', intro: 'اختر<br><em>الحساب</em> للتداول.', games: 'الألعاب المدعومة', partners: 'الشركاء', safety: 'تنبيه الأمان', report: 'الإبلاغ عن احتيال', join: 'انضم إلى اللوحة', community: 'إعلانات المجتمع', trade: 'حالة التداول', needHelp: 'هل تحتاج مساعدة؟' },
+  es: { language: 'Idioma', chooseLanguage: 'Elige el idioma del tablero.', settings: 'XPLAW / AJUSTES', login: 'INICIAR SESIÓN', listing: 'CREAR ANUNCIO', enter: 'Entra al<br><em>tablero.</em>', welcome: 'Bienvenido', intro: 'Elige la<br><em>cuenta</em> para comerciar.', games: 'Juegos compatibles', partners: 'Socios', safety: 'AVISO DE SEGURIDAD', report: 'Reportar una estafa', join: 'Unirse al tablero', community: 'Anuncios de la comunidad', trade: 'Estado del intercambio', needHelp: '¿Necesitas ayuda?' },
+  ru: { language: 'Язык', chooseLanguage: 'Выберите язык доски.', settings: 'XPLAW / НАСТРОЙКИ', login: 'ВОЙТИ', listing: 'СОЗДАТЬ ОБЪЯВЛЕНИЕ', enter: 'Войти на<br><em>доску.</em>', welcome: 'Добро пожаловать', intro: 'Выберите<br><em>аккаунт</em> для обмена.', games: 'Поддерживаемые игры', partners: 'Партнёры', safety: 'УВЕДОМЛЕНИЕ О БЕЗОПАСНОСТИ', report: 'Сообщить о мошенничестве', join: 'Присоединиться к доске', community: 'Объявления сообщества', trade: 'Статус обмена', needHelp: 'Нужна помощь?' }
+};
+
+function applyLanguage(language) {
+  const selected = languageText[language] ? language : 'en';
+  const text = languageText[selected];
+  localStorage.setItem('xplaw-language', selected);
+  document.documentElement.lang = selected;
+  document.documentElement.dir = selected === 'ar' ? 'rtl' : 'ltr';
+  document.querySelector('#language-title').textContent = text.language;
+  document.querySelector('#language-drawer > p').textContent = text.chooseLanguage;
+  document.querySelector('#login-button').textContent = isAdmin() ? 'LOG OUT ADMIN' : localStorage.getItem('xplaw-session') ? 'LOG OUT' : text.login;
+  updateEntryGreeting();
+  document.querySelector('#enter-board').childNodes[0].textContent = `${text.listing} `;
+  document.querySelector('.intro h1').innerHTML = text.intro;
+  const headings = document.querySelectorAll('.games-section h2, .partners-section h2, .community-grid h2, .uploaded-section h2, .lower-grid h2, .owner-profile h2');
+  [text.games, text.partners, text.report, text.join, text.community, text.trade, text.needHelp].forEach((value, index) => { if (headings[index]) headings[index].textContent = value; });
+  document.querySelector('.safety-notice .tiny-label').textContent = text.safety;
+  document.querySelectorAll('[data-language]').forEach((button) => button.classList.toggle('active', button.dataset.language === selected));
+}
+
 function leaveEntryScreen() {
   const entryScreen = document.querySelector('#entry-screen');
   if (!entryScreen || entryScreen.classList.contains('entry-exit')) return;
@@ -39,7 +64,15 @@ function validUsername(username) {
 }
 
 function readUsers() {
-  return JSON.parse(localStorage.getItem('xplaw-users') || '[]');
+  try { return JSON.parse(localStorage.getItem('xplaw-users') || '[]'); }
+  catch { return []; }
+}
+
+function readReports() {
+  try {
+    const reports = JSON.parse(localStorage.getItem('xplaw-reports') || '[]');
+    return Array.isArray(reports) ? reports : [];
+  } catch { return []; }
 }
 
 function readSharedListing() {
@@ -58,6 +91,31 @@ function updateAuthButton() {
   if (isAdmin()) button.textContent = 'LOG OUT ADMIN';
   else if (localStorage.getItem('xplaw-session')) button.textContent = 'LOG OUT';
   else button.textContent = 'LOG IN';
+}
+
+function updateEntryGreeting() {
+  const title = document.querySelector('#entry-title');
+  if (!title) return;
+  const text = languageText[localStorage.getItem('xplaw-language') || 'en'];
+  const username = localStorage.getItem('xplaw-session');
+  title.replaceChildren();
+  if (username) {
+    title.append(`${text.welcome} `, document.createElement('br'));
+    const name = document.createElement('em');
+    name.textContent = username;
+    title.append(name);
+    return;
+  }
+  const enterParts = {
+    en: ['Enter the ', 'board.'],
+    ar: ['ادخل إلى ', 'اللوحة.'],
+    es: ['Entra al ', 'tablero.'],
+    ru: ['Войти на ', 'доску.']
+  }[localStorage.getItem('xplaw-language') || 'en'];
+  title.append(enterParts[0], document.createElement('br'));
+  const board = document.createElement('em');
+  board.textContent = enterParts[1];
+  title.append(board);
 }
 
 function renderCommunityListings() {
@@ -158,7 +216,8 @@ function renderAdminConsole() {
   const listings = JSON.parse(localStorage.getItem('xplaw-listings') || '[]');
   const users = [...readUsers(), { username: adminUsername }];
   const banned = JSON.parse(localStorage.getItem('xplaw-banned') || '[]');
-  document.querySelector('#admin-summary').textContent = `${users.length} REGISTERED · ${listings.length} LISTINGS`;
+  const reports = serverMode ? [] : readReports();
+  document.querySelector('#admin-summary').textContent = `${users.length} REGISTERED · ${listings.length} LISTINGS · ${reports.length} REPORTS`;
   const accounts = document.querySelector('#admin-accounts');
   accounts.replaceChildren();
   [...users.map((user) => user.username), ...listings.map((listing) => listing.owner)].filter((value, index, values) => values.indexOf(value) === index).forEach((username) => {
@@ -171,6 +230,59 @@ function renderAdminConsole() {
     row.append(name, label);
     accounts.appendChild(row);
   });
+  const reportList = document.querySelector('#admin-reports');
+  if (reportList) {
+    reportList.replaceChildren();
+    if (!reports.length) {
+      reportList.textContent = serverMode ? 'Loading reports...' : 'No reports saved on this device.';
+    } else {
+      reports.slice().reverse().forEach((report) => {
+        const row = document.createElement('div');
+        row.className = 'admin-report-row';
+        row.innerHTML = `<strong></strong><span></span><p></p><div class="admin-report-actions"><button type="button" data-report-action="review" data-report-id="${report.id}">MARK REVIEWED</button><button type="button" data-report-action="ban" data-report-id="${report.id}">BAN USER</button></div>`;
+        row.querySelector('strong').textContent = report.account || 'Unknown account';
+        row.querySelector('span').textContent = `${report.username || 'Anonymous'} · ${new Date(report.createdAt).toLocaleDateString()}`;
+        row.querySelector('p').textContent = report.details || 'No details provided.';
+        reportList.appendChild(row);
+      });
+    }
+  }
+}
+
+function renderAdminReports(reports) {
+  const reportList = document.querySelector('#admin-reports');
+  if (!reportList) return;
+  reportList.replaceChildren();
+  if (!reports.length) { reportList.textContent = 'No reports in the inbox.'; return; }
+  reports.slice().reverse().forEach((report) => {
+    const row = document.createElement('div');
+    row.className = 'admin-report-row';
+    const account = document.createElement('strong');
+    account.textContent = report.account || 'Unknown account';
+    const meta = document.createElement('span');
+    meta.textContent = `${report.username || 'Anonymous'} · ${report.status || 'OPEN'} · ${new Date(report.createdAt).toLocaleDateString()}`;
+    const details = document.createElement('p');
+    details.textContent = report.details || 'No details provided.';
+    const actions = document.createElement('div');
+    actions.className = 'admin-report-actions';
+    if (report.status !== 'reviewed' && report.status !== 'banned') actions.innerHTML = `<button type="button" data-report-action="review" data-report-id="${report.id}">MARK REVIEWED</button><button type="button" data-report-action="ban" data-report-id="${report.id}">BAN USER</button>`;
+    row.append(account, meta, details, actions);
+    reportList.appendChild(row);
+  });
+}
+
+async function loadAdminReports() {
+  if (!isAdmin() || !serverMode) { renderAdminConsole(); return; }
+  const reportList = document.querySelector('#admin-reports');
+  if (reportList) reportList.textContent = 'Loading reports...';
+  try {
+    const response = await fetch('/api/reports', { headers: { Authorization: `Bearer ${localStorage.getItem('xplaw-server-token') || ''}` } });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Reports could not be loaded.');
+    renderAdminReports(result.reports || []);
+  } catch (error) {
+    if (reportList) reportList.textContent = error.message;
+  }
 }
 
 document.querySelector('#focus-button').addEventListener('click', () => {
@@ -185,6 +297,15 @@ function updateClock() {
 updateClock();
 setInterval(updateClock, 1000);
 
+let scrollFrame = 0;
+window.addEventListener('scroll', () => {
+  if (scrollFrame) return;
+  scrollFrame = requestAnimationFrame(() => {
+    document.documentElement.style.setProperty('--scroll-y', `${window.scrollY}px`);
+    scrollFrame = 0;
+  });
+}, { passive: true });
+
 const revealObserver = new IntersectionObserver((entries) => {
   entries.forEach((entry) => {
     if (entry.isIntersecting) entry.target.classList.add('visible');
@@ -196,16 +317,28 @@ document.querySelectorAll('.reveal').forEach((element, index) => {
 });
 
 const loginDialog = document.querySelector('#login-dialog');
+const logoutDialog = document.querySelector('#logout-dialog');
+const languageDrawer = document.querySelector('#language-drawer');
+document.querySelector('#settings-button').addEventListener('click', () => { languageDrawer.hidden = false; languageDrawer.classList.add('open'); });
+document.querySelector('#settings-close').addEventListener('click', () => { languageDrawer.classList.remove('open'); setTimeout(() => { languageDrawer.hidden = true; }, 220); });
+document.querySelectorAll('[data-language]').forEach((button) => button.addEventListener('click', () => applyLanguage(button.dataset.language)));
 document.querySelector('#login-button').addEventListener('click', () => {
   if (localStorage.getItem('xplaw-session')) {
-    localStorage.removeItem('xplaw-session');
-    localStorage.removeItem('xplaw-admin');
-    updateAuthButton();
-    renderCommunityListings();
-    renderAdminConsole();
+    logoutDialog.showModal();
     return;
   }
   loginDialog.showModal();
+});
+document.querySelector('#logout-cancel').addEventListener('click', () => logoutDialog.close());
+document.querySelector('#logout-confirm').addEventListener('click', () => {
+    localStorage.removeItem('xplaw-session');
+    localStorage.removeItem('xplaw-admin');
+    localStorage.removeItem('xplaw-server-token');
+    updateAuthButton();
+    updateEntryGreeting();
+    renderCommunityListings();
+    renderAdminConsole();
+    logoutDialog.close();
 });
 document.querySelector('#dialog-close').addEventListener('click', () => loginDialog.close());
 document.querySelector('#create-account').addEventListener('click', () => {
@@ -225,7 +358,7 @@ document.querySelector('#register-username').addEventListener('input', (event) =
 
 function readReportCounts() {
   const counts = {};
-  JSON.parse(localStorage.getItem('xplaw-reports') || '[]').forEach((report) => {
+  readReports().forEach((report) => {
     if (report.account) counts[report.account] = (counts[report.account] || 0) + 1;
   });
   return counts;
@@ -257,11 +390,11 @@ document.querySelector('#login-form').addEventListener('submit', async (event) =
       localStorage.setItem('xplaw-session', values.username);
       localStorage.setItem('xplaw-admin', result.admin ? 'true' : 'false');
       form.reset();
-      updateAuthButton(); renderAdminConsole(); loginDialog.close(); return;
+      updateAuthButton(); updateEntryGreeting(); renderAdminConsole(); loginDialog.close(); return;
     } catch (error) {
       if (await tryLocalAdminLogin(values.username, values.password)) {
         form.reset();
-        updateAuthButton(); renderCommunityListings(); renderAdminConsole(); loginDialog.close(); return;
+        updateAuthButton(); updateEntryGreeting(); renderCommunityListings(); renderAdminConsole(); loginDialog.close(); return;
       }
       status.textContent = error.message; return;
     }
@@ -269,6 +402,7 @@ document.querySelector('#login-form').addEventListener('submit', async (event) =
   if (await tryLocalAdminLogin(values.username, values.password)) {
     document.querySelector('#login-button').textContent = 'ADMIN MODE';
     updateAuthButton();
+    updateEntryGreeting();
     document.querySelector('#login-dialog').close();
     renderCommunityListings();
     renderAdminConsole();
@@ -281,6 +415,7 @@ document.querySelector('#login-form').addEventListener('submit', async (event) =
   status.textContent = 'Logged in. You can now submit listings.';
   document.querySelector('#login-button').textContent = 'LOGGED IN';
   updateAuthButton();
+  updateEntryGreeting();
   document.querySelector('#login-dialog').close();
   renderCommunityListings();
   renderAdminConsole();
@@ -328,12 +463,13 @@ document.querySelector('#report-form').addEventListener('submit', async (event) 
       return;
     }
   }
-  const reports = JSON.parse(localStorage.getItem('xplaw-reports') || '[]');
+  const reports = readReports();
   reports.push({ ...Object.fromEntries(formData), createdAt: new Date().toISOString() });
   localStorage.setItem('xplaw-reports', JSON.stringify(reports));
   status.textContent = 'Report saved on this device for review.';
   form.reset();
   renderReportCounts();
+  renderAdminConsole();
 });
 function readImage(file) {
   return new Promise((resolve, reject) => {
@@ -408,8 +544,28 @@ document.querySelector('#uploaded-listings').addEventListener('click', async (ev
   renderAdminConsole();
 });
 
+document.querySelector('#admin-reports').addEventListener('click', async (event) => {
+  const actionButton = event.target.closest('[data-report-action]');
+  if (!actionButton || !isAdmin() || !serverMode) return;
+  const action = actionButton.dataset.reportAction;
+  const reportId = actionButton.dataset.reportId;
+  const username = action === 'ban' ? window.prompt('Username to ban:', '') : '';
+  if (action === 'ban' && !username) return;
+  actionButton.disabled = true;
+  try {
+    const response = await fetch(`/api/reports/${encodeURIComponent(reportId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('xplaw-server-token') || ''}` }, body: JSON.stringify({ action, username }) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Report action failed.');
+    await loadAdminReports();
+  } catch (error) { actionButton.disabled = false; window.alert(error.message); }
+});
+document.querySelector('#refresh-reports').addEventListener('click', loadAdminReports);
+
 renderReportCounts();
 renderCommunityListings();
 renderAdminConsole();
 updateAuthButton();
+updateEntryGreeting();
+applyLanguage(localStorage.getItem('xplaw-language') || 'en');
 loadSharedListings();
+loadAdminReports();

@@ -30,8 +30,8 @@ function loadDotEnv(filePath) {
 function loadData() {
   try {
     const saved = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
-    return { users: saved.users || [], reports: saved.reports || [], listings: saved.listings || [] };
-  } catch { return { users: [], reports: [], listings: [] }; }
+    return { users: saved.users || [], reports: saved.reports || [], listings: saved.listings || [], banned: saved.banned || [] };
+  } catch { return { users: [], reports: [], listings: [], banned: [] }; }
 }
 
 function saveData() {
@@ -85,6 +85,11 @@ function sessionUser(request) {
   return token ? sessions.get(token) : null;
 }
 
+function adminUser(request) {
+  const account = sessionUser(request);
+  return account?.admin ? account : null;
+}
+
 async function sendReport(report) {
   const webhook = process.env.DISCORD_WEBHOOK_URL;
   if (!webhook) throw new Error('DISCORD_WEBHOOK_URL is not configured');
@@ -96,6 +101,7 @@ async function sendReport(report) {
       content: '@here New scam report received. Review evidence before taking action.',
       embeds: [{ title: 'Scam report', color: 0xd8674d, fields: [
         { name: 'Reporter', value: report.username || 'Not provided' },
+        { name: 'Account', value: report.account || 'Not provided' },
         { name: 'Details', value: report.details || 'Not provided' },
         { name: 'Evidence', value: report.evidence || 'Not provided' }
       ], timestamp: new Date().toISOString() }]
@@ -116,10 +122,35 @@ async function handleApi(request, response, pathname) {
     const adminUsername = process.env.ADMIN_USERNAME || '';
     const registeredUser = users.users.find((user) => user.username === username);
     const isAdmin = username === adminUsername && passwordMatches(password);
+    if (users.banned.includes(username)) return json(response, 403, { error: 'This account is banned.' });
     if (!isAdmin && (!registeredUser || !userPasswordMatches(password, registeredUser))) return json(response, 401, { error: 'Invalid login details.' });
     const token = crypto.randomBytes(32).toString('hex');
     sessions.set(token, { username, admin: isAdmin, createdAt: Date.now() });
     return json(response, 200, { ok: true, token, admin: isAdmin });
+  }
+
+  if (request.method === 'GET' && pathname === '/api/reports') {
+    if (!adminUser(request)) return json(response, 403, { error: 'Admin access required.' });
+    return json(response, 200, { reports: users.reports });
+  }
+
+  if (request.method === 'PATCH' && pathname.startsWith('/api/reports/')) {
+    if (!adminUser(request)) return json(response, 403, { error: 'Admin access required.' });
+    const reportId = pathname.slice('/api/reports/'.length);
+    const report = users.reports.find((entry) => entry.id === reportId);
+    if (!report) return json(response, 404, { error: 'Report not found.' });
+    const body = await readBody(request);
+    if (body.action === 'review') report.status = 'reviewed';
+    else if (body.action === 'ban') {
+      const username = clean(body.username || report.account, 64);
+      if (!username) return json(response, 400, { error: 'A username is required to ban.' });
+      if (!users.banned.includes(username)) users.banned.push(username);
+      report.status = 'banned';
+      report.bannedUsername = username;
+      users.listings = users.listings.filter((listing) => listing.owner !== username);
+    } else return json(response, 400, { error: 'Unknown report action.' });
+    saveData();
+    return json(response, 200, { ok: true, report });
   }
 
   if (request.method === 'POST' && pathname === '/api/register') {
@@ -136,11 +167,24 @@ async function handleApi(request, response, pathname) {
 
   if (request.method === 'POST' && pathname === '/api/report') {
     const body = await readBody(request);
-    const report = { id: crypto.randomUUID(), username: clean(body.username, 64), details: clean(body.details), evidence: clean(body.evidence, 500), createdAt: new Date().toISOString() };
+    const report = { id: crypto.randomUUID(), username: clean(body.username, 64), account: clean(body.account, 64), details: clean(body.details, 2000), evidence: clean(body.evidence, 500), createdAt: new Date().toISOString(), deliveryStatus: 'pending' };
     if (!report.username || !report.details) return json(response, 400, { error: 'Username and details are required.' });
-    try { await sendReport(report); } catch (error) { console.error(error.message); return json(response, 503, { error: 'Report delivery is temporarily unavailable. Try again later.' }); }
+    if (report.evidence) {
+      try { const evidenceUrl = new URL(report.evidence); if (!['http:', 'https:'].includes(evidenceUrl.protocol)) throw new Error('Invalid evidence URL'); }
+      catch { return json(response, 400, { error: 'Evidence must be a valid HTTP or HTTPS link.' }); }
+    }
     users.reports.push(report); saveData();
-    return json(response, 201, { ok: true, message: 'Report sent to moderation.' });
+    try {
+      await sendReport(report);
+      report.deliveryStatus = 'delivered';
+      saveData();
+      return json(response, 201, { ok: true, message: 'Report sent to moderation.' });
+    } catch (error) {
+      report.deliveryStatus = 'queued';
+      saveData();
+      console.error(error.message);
+      return json(response, 202, { ok: true, message: 'Report saved. Moderation delivery is temporarily delayed.' });
+    }
   }
 
   if (request.method === 'POST' && pathname === '/api/listings') {
