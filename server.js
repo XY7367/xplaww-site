@@ -10,6 +10,10 @@ const root = __dirname;
 const dataFile = path.join(root, 'data.json');
 const sessions = new Map();
 const users = loadData();
+const allowedContactHosts = ['discord.gg', 'discord.com', 'instagram.com', 'x.com', 'twitter.com', 'tiktok.com', 'youtube.com', 'youtu.be'];
+const partnerUsername = 'ONYX';
+const partnerPasswordSalt = 'xplaw-onyx-partner-salt-v1';
+const partnerPasswordHash = 'fb707e3c2acc08c617c997242980200f5af9c24343b93950b7ed5c2d6f1f4c8ea2cd2c342b21044b5bd6cdbb1a987b63e0c8d2805bc4994a7d913c083d83bc26';
 
 function loadDotEnv(filePath) {
   if (!fs.existsSync(filePath)) return;
@@ -122,11 +126,12 @@ async function handleApi(request, response, pathname) {
     const adminUsername = process.env.ADMIN_USERNAME || '';
     const registeredUser = users.users.find((user) => user.username === username);
     const isAdmin = username === adminUsername && passwordMatches(password);
+    const isPartner = username.toUpperCase() === partnerUsername && hashPassword(password, partnerPasswordSalt) === partnerPasswordHash;
     if (users.banned.includes(username)) return json(response, 403, { error: 'This account is banned.' });
-    if (!isAdmin && (!registeredUser || !userPasswordMatches(password, registeredUser))) return json(response, 401, { error: 'Invalid login details.' });
+    if (!isAdmin && !isPartner && (!registeredUser || !userPasswordMatches(password, registeredUser))) return json(response, 401, { error: 'Invalid login details.' });
     const token = crypto.randomBytes(32).toString('hex');
-    sessions.set(token, { username, admin: isAdmin, createdAt: Date.now() });
-    return json(response, 200, { ok: true, token, admin: isAdmin });
+    sessions.set(token, { username: isPartner ? partnerUsername : username, admin: isAdmin, partner: isPartner, createdAt: Date.now() });
+    return json(response, 200, { ok: true, token, admin: isAdmin, partner: isPartner });
   }
 
   if (request.method === 'GET' && pathname === '/api/reports') {
@@ -142,7 +147,7 @@ async function handleApi(request, response, pathname) {
     const body = await readBody(request);
     if (body.action === 'review') report.status = 'reviewed';
     else if (body.action === 'ban') {
-      const username = clean(body.username || report.account, 64);
+      const username = clean(body.username, 64);
       if (!username) return json(response, 400, { error: 'A username is required to ban.' });
       if (!users.banned.includes(username)) users.banned.push(username);
       report.status = 'banned';
@@ -158,7 +163,7 @@ async function handleApi(request, response, pathname) {
     const username = clean(body.username, 64);
     const password = String(body.password || '');
     if (!/^[A-Za-z0-9_]{3,64}$/.test(username) || password.length < 8) return json(response, 400, { error: 'Use 3-64 letters, numbers, or underscores and a password of 8+ characters.' });
-    if (username === process.env.ADMIN_USERNAME || users.users.some((user) => user.username === username)) return json(response, 409, { error: 'That username is already in use.' });
+    if (username === process.env.ADMIN_USERNAME || username.toUpperCase() === partnerUsername || users.users.some((user) => user.username === username)) return json(response, 409, { error: 'That username is already in use.' });
     const salt = crypto.randomBytes(16).toString('hex');
     users.users.push({ username, salt, passwordHash: hashPassword(password, salt), createdAt: new Date().toISOString() });
     saveData();
@@ -190,9 +195,15 @@ async function handleApi(request, response, pathname) {
   if (request.method === 'POST' && pathname === '/api/listings') {
     const account = sessionUser(request);
     if (!account) return json(response, 401, { error: 'Log in before uploading a listing.' });
+    if (users.banned.includes(account.username)) return json(response, 403, { error: 'This account is banned.' });
     const body = await readBody(request);
-    const listing = { id: crypto.randomUUID(), owner: account.username, account: clean(body.account, 64), game: clean(body.game, 80), listingType: clean(body.listingType, 30), description: clean(body.description), contactPlatform: clean(body.contactPlatform, 40), contactLink: clean(body.contactLink, 500), createdAt: new Date().toISOString() };
+    const listing = { id: crypto.randomUUID(), owner: account.username, partner: account.partner === true, account: clean(body.account, 64), game: clean(body.game, 80), listingType: clean(body.listingType, 30), description: clean(body.description), contactPlatform: clean(body.contactPlatform, 40), contactLink: clean(body.contactLink, 500), createdAt: new Date().toISOString() };
     if (!listing.account || !listing.description) return json(response, 400, { error: 'Account name and description are required.' });
+    try {
+      const contactUrl = new URL(listing.contactLink);
+      const safeHost = allowedContactHosts.some((host) => contactUrl.hostname === host || contactUrl.hostname.endsWith(`.${host}`));
+      if (contactUrl.protocol !== 'https:' || !safeHost) throw new Error('Invalid contact link');
+    } catch { return json(response, 400, { error: 'Only HTTPS Discord or approved social-media links are allowed.' }); }
     users.listings.push(listing); saveData();
     return json(response, 201, { ok: true, message: 'Listing submitted for review.' });
   }
@@ -205,8 +216,9 @@ const server = http.createServer(async (request, response) => {
   try {
     if (pathname.startsWith('/api/')) return await handleApi(request, response, pathname);
     const requested = pathname === '/' ? '/index.html' : pathname;
-    const file = path.join(root, requested);
-    if (!file.startsWith(root) || !fs.existsSync(file)) return json(response, 404, { error: 'Not found.' });
+    const file = path.resolve(root, `.${requested}`);
+    const relative = path.relative(root, file);
+    if (relative.startsWith('..') || path.isAbsolute(relative) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return json(response, 404, { error: 'Not found.' });
     const type = file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : 'text/html';
     response.writeHead(200, { 'Content-Type': `${type}; charset=utf-8` });
     fs.createReadStream(file).pipe(response);

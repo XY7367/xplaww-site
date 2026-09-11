@@ -1,6 +1,8 @@
 const blockedUsernameWords = ['fuck', 'shit', 'bitch', 'asshole', 'cunt', 'dick', 'piss', 'porn', 'nazi'];
 const adminUsername = 'cvtsforher';
 const adminPasswordHash = 'd6f049f4ed8732e1ea0540aaa13e0022b5315e488b6c7dea028d60db72724ef4';
+const partnerUsername = 'ONYX';
+const partnerPasswordHash = '8a84256c425d64bec410a3794378fcf678ac6734dc0d61af29ca7674dd63292d';
 const serverMode = window.location.protocol !== 'file:';
 let sharedListings = null;
 
@@ -55,12 +57,20 @@ async function tryLocalAdminLogin(username, password) {
   if (String(username).toLowerCase() !== adminUsername || adminPasswordHash !== await hashText(String(password))) return false;
   localStorage.setItem('xplaw-session', adminUsername);
   localStorage.setItem('xplaw-admin', 'true');
+  localStorage.setItem('xplaw-partner', 'false');
   return true;
 }
 
 function validUsername(username) {
   const normalized = username.toLowerCase();
   return /^[A-Za-z0-9_]{3,64}$/.test(username) && !blockedUsernameWords.some((word) => normalized.includes(word));
+}
+
+async function tryLocalPartnerLogin(username, password) {
+  if (String(username).toUpperCase() !== partnerUsername || partnerPasswordHash !== await hashText(String(password))) return false;
+  localStorage.setItem('xplaw-session', partnerUsername);
+  localStorage.setItem('xplaw-partner', 'true');
+  return true;
 }
 
 function readUsers() {
@@ -102,7 +112,7 @@ function updateEntryGreeting() {
   if (username) {
     title.append(`${text.welcome} `, document.createElement('br'));
     const name = document.createElement('em');
-    name.textContent = username;
+    name.textContent = username.toUpperCase() === partnerUsername ? 'Wis' : username;
     title.append(name);
     return;
   }
@@ -163,7 +173,13 @@ function renderCommunityListings() {
     description.textContent = listing.description;
     const owner = document.createElement('span');
     owner.className = 'listing-owner';
-    owner.textContent = `LISTED BY ${listing.owner}`;
+    owner.append(`LISTED BY ${listing.owner}`);
+    if (listing.partner || String(listing.owner).toUpperCase() === partnerUsername) {
+      const badge = document.createElement('span');
+      badge.className = 'partner-listing-badge';
+      badge.textContent = 'PARTNER';
+      owner.appendChild(badge);
+    }
     const contact = document.createElement('a');
     contact.className = 'listing-contact';
     contact.href = listing.contactLink || 'https://discord.gg/ZxeBtrTa';
@@ -334,6 +350,7 @@ document.querySelector('#logout-confirm').addEventListener('click', () => {
     localStorage.removeItem('xplaw-session');
     localStorage.removeItem('xplaw-admin');
     localStorage.removeItem('xplaw-server-token');
+    localStorage.removeItem('xplaw-partner');
     updateAuthButton();
     updateEntryGreeting();
     renderCommunityListings();
@@ -389,6 +406,7 @@ document.querySelector('#login-form').addEventListener('submit', async (event) =
       localStorage.setItem('xplaw-server-token', result.token);
       localStorage.setItem('xplaw-session', values.username);
       localStorage.setItem('xplaw-admin', result.admin ? 'true' : 'false');
+      localStorage.setItem('xplaw-partner', result.partner ? 'true' : 'false');
       form.reset();
       updateAuthButton(); updateEntryGreeting(); renderAdminConsole(); loginDialog.close(); return;
     } catch (error) {
@@ -399,7 +417,7 @@ document.querySelector('#login-form').addEventListener('submit', async (event) =
       status.textContent = error.message; return;
     }
   }
-  if (await tryLocalAdminLogin(values.username, values.password)) {
+  if (await tryLocalAdminLogin(values.username, values.password) || await tryLocalPartnerLogin(values.username, values.password)) {
     document.querySelector('#login-button').textContent = 'ADMIN MODE';
     updateAuthButton();
     updateEntryGreeting();
@@ -435,7 +453,7 @@ document.querySelector('#register-form').addEventListener('submit', async (event
       setTimeout(() => { document.querySelector('#register-view').hidden = true; document.querySelector('#login-view').hidden = false; }, 900); return;
     } catch (error) { status.textContent = error.message; return; }
   }
-  if (!validUsername(String(values.username)) || String(values.username).toLowerCase() === adminUsername) { status.textContent = 'That username is unavailable. Use 3-64 letters, numbers, or underscores and keep it appropriate.'; return; }
+  if (!validUsername(String(values.username)) || String(values.username).toLowerCase() === adminUsername || String(values.username).toUpperCase() === partnerUsername) { status.textContent = 'That username is unavailable. Use 3-64 letters, numbers, or underscores and keep it appropriate.'; return; }
   const users = readUsers();
   if (users.some((entry) => entry.username.toLowerCase() === String(values.username).toLowerCase())) { status.textContent = 'Username unavailable.'; return; }
   users.push({ username: String(values.username), passwordHash: await hashText(String(values.password)), createdAt: new Date().toISOString() });
@@ -507,7 +525,7 @@ document.querySelector('#listing-form').addEventListener('submit', async (event)
   let images = [];
   try { images = await Promise.all(imageFiles.map(readImage)); } catch (error) { status.textContent = error.message; return; }
   const listings = JSON.parse(localStorage.getItem('xplaw-listings') || '[]');
-  try { listings.push({ ...values, images, owner, createdAt: new Date().toISOString() }); localStorage.setItem('xplaw-listings', JSON.stringify(listings)); }
+  try { listings.push({ ...values, images, owner, partner: owner.toUpperCase() === partnerUsername, createdAt: new Date().toISOString() }); localStorage.setItem('xplaw-listings', JSON.stringify(listings)); }
   catch { status.textContent = 'This listing is too large for browser storage. Use smaller images.'; return; }
   status.textContent = 'Listing saved on this device.';
   form.reset();
