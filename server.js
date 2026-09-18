@@ -219,7 +219,7 @@ const server = http.createServer(async (request, response) => {
     const file = path.resolve(root, `.${requested}`);
     const relative = path.relative(root, file);
     if (relative.startsWith('..') || path.isAbsolute(relative) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return json(response, 404, { error: 'Not found.' });
-    const type = file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : 'text/html';
+    const type = file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : file.endsWith('.svg') ? 'image/svg+xml' : 'text/html';
     response.writeHead(200, { 'Content-Type': `${type}; charset=utf-8` });
     fs.createReadStream(file).pipe(response);
   } catch (error) { console.error(error); json(response, 500, { error: 'Server error.' }); }
